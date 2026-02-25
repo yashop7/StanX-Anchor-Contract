@@ -50,3 +50,14 @@ pub struct RewardsClaimed {
     pub no_tokens_burned: u64,
     pub timestamp: i64,
 }
+
+#[event]
+pub struct MarketOrderExecuted {
+    pub market_id: u32,
+    pub user: Pubkey,
+    pub side: OrderSide,
+    pub token_type: TokenType,
+    pub total_quantity: u64,
+    pub orders_matched: u64,
+    pub timestamp: i64,
+}
