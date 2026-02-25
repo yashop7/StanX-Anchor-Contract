@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{self, Token, Burn, Transfer},
-    token_interface::{TokenAccount , Mint}
+    token::{self, Burn, Token, Transfer},
+    token_interface::{Mint, TokenAccount},
 };
 
 use crate::constants::*;

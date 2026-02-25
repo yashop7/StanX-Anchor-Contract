@@ -86,11 +86,11 @@ pub struct InitializeMarket<'info> {
     pub orderbook: Box<Account<'info, OrderBook>>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 impl<'info> InitializeMarket<'info> {
-    pub fn initialise (
+    pub fn initialise(
         &mut self,
         market_id: u32,
         settlement_deadline: i64,
@@ -110,7 +110,7 @@ impl<'info> InitializeMarket<'info> {
             outcome_no_mint: self.outcome_no_mint.key(),
             yes_escrow: self.yes_escrow.key(),
             no_escrow: self.no_escrow.key(),
-            meta_data_url : String::from(""),
+            meta_data_url: String::from(""),
             is_settled: false,
             winning_outcome: None,
             total_collateral_locked: 0,

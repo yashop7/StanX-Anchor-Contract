@@ -69,7 +69,12 @@ pub struct SplitToken<'info> {
 }
 
 impl<'info> SplitToken<'info> {
-    pub fn split_token(&mut self, market_id: u32, amount: u64, bumps: &SplitTokenBumps) -> Result<()> {
+    pub fn split_token(
+        &mut self,
+        market_id: u32,
+        amount: u64,
+        bumps: &SplitTokenBumps,
+    ) -> Result<()> {
         require!(amount > 0, PredictionMarketError::InvalidAmount);
         require!(
             !self.market.is_settled,
