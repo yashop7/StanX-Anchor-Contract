@@ -86,12 +86,11 @@ pub struct InitializeMarket<'info> {
     pub orderbook: Box<Account<'info, OrderBook>>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Interface<'info, TokenInterface>,
-    pub rent: Sysvar<'info, Rent>,
+    pub token_program: Interface<'info, TokenInterface>
 }
 
 impl<'info> InitializeMarket<'info> {
-    pub fn handler(
+    pub fn initialise (
         &mut self,
         market_id: u32,
         settlement_deadline: i64,

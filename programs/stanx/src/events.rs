@@ -1,0 +1,43 @@
+
+use anchor_lang::prelude::*;
+
+use crate::state::*;
+
+#[event]
+pub struct MarketInitialized {
+    pub market_id: u32,
+    pub authority: Pubkey,
+    pub settlement_deadline: i64,
+    pub collateral_mint: Pubkey,
+    pub outcome_yes_mint: Pubkey,
+    pub outcome_no_mint: Pubkey,
+}
+
+#[event]
+pub struct TokensSplit {
+    pub market_id: u32,
+    pub user: Pubkey,
+    pub amount: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct TokensMerged {
+    pub market_id: u32,
+    pub user: Pubkey,
+    pub amount: u64,
+    pub timestamp: i64,
+}
+
+
+#[event]
+pub struct OrderPlaced {
+    pub market_id: u32,
+    pub order_id: u64,
+    pub user: Pubkey,
+    pub side: OrderSide,
+    pub token_type: TokenType,
+    pub price: u64,
+    pub quantity: u64,
+    pub timestamp: i64,
+}

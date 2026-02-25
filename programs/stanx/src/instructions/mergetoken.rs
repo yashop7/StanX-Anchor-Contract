@@ -1,5 +1,8 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Burn, Mint, MintTo, Token, TokenAccount, Transfer};
+use anchor_spl::{
+    token::{self, Token, Burn, Transfer},
+    token_interface::{TokenAccount , Mint}
+};
 
 use crate::constants::*;
 use crate::error::*;
@@ -24,32 +27,32 @@ pub struct MergeTokens<'info> {
         constraint = user_collateral.mint == market.collateral_mint,
         constraint = user_collateral.owner == user.key()
     )]
-    pub user_collateral: Box<Account<'info, TokenAccount>>,
+    pub user_collateral: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = collateral_vault.key() == market.collateral_vault // We can also used the .owner of vault to verify it's authority of market
+        constraint = collateral_vault.key() == market.collateral_vault
     )]
-    pub collateral_vault: Box<Account<'info, TokenAccount>>,
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = outcome_yes_mint.key() == market.outcome_yes_mint
     )]
-    pub outcome_yes_mint: Box<Account<'info, Mint>>,
+    pub outcome_yes_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
         constraint = outcome_no_mint.key() == market.outcome_no_mint
     )]
-    pub outcome_no_mint: Box<Account<'info, Mint>>,
+    pub outcome_no_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
         mut,
         constraint = user_outcome_yes.owner == user.key(),
         constraint = user_outcome_yes.mint == market.outcome_yes_mint
     )]
-    pub user_outcome_yes: Box<Account<'info, TokenAccount>>, // Ohh we willn't make this account here,
+    pub user_outcome_yes: Box<InterfaceAccount<'info, TokenAccount>>, // Ohh we willn't make this account here,
     #[account(
         mut,
         seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
@@ -62,12 +65,12 @@ pub struct MergeTokens<'info> {
         constraint = user_outcome_no.owner == user.key(),
         constraint = user_outcome_no.mint == market.outcome_no_mint
     )]
-    pub user_outcome_no: Box<Account<'info, TokenAccount>>,
+    pub user_outcome_no: Box<InterfaceAccount<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
 }
 
 impl<'info> MergeTokens<'info> {
-    pub fn handler(&mut self, _market_id: u32) -> Result<()> {
+    pub fn merge_tokens(&mut self, _market_id: u32) -> Result<()> {
         require!(
             Clock::get()?.unix_timestamp < self.market.settlement_deadline,
             PredictionMarketError::MarketExpired
@@ -130,6 +133,7 @@ impl<'info> MergeTokens<'info> {
             .ok_or(PredictionMarketError::MathOverflow)?;
 
         let user_stats = &mut self.user_stats_account;
+
         user_stats.locked_yes = user_stats
             .locked_yes
             .checked_sub(amount)
