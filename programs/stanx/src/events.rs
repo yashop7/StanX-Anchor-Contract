@@ -61,3 +61,15 @@ pub struct MarketOrderExecuted {
     pub orders_matched: u64,
     pub timestamp: i64,
 }
+
+
+#[event]
+pub struct OrderCancelled {
+    pub market_id: u32,
+    pub order_id: u64,
+    pub user: Pubkey,
+    pub side: OrderSide,
+    pub token_type: TokenType,
+    pub remaining_quantity: u64,
+    pub timestamp: i64,
+}
