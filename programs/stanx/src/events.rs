@@ -41,3 +41,12 @@ pub struct OrderPlaced {
     pub quantity: u64,
     pub timestamp: i64,
 }
+#[event]
+pub struct RewardsClaimed {
+    pub market_id: u32,
+    pub user: Pubkey,
+    pub collateral_amount: u64,
+    pub yes_tokens_burned: u64,
+    pub no_tokens_burned: u64,
+    pub timestamp: i64,
+}
