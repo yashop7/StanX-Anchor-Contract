@@ -1,4 +1,3 @@
-
 use anchor_lang::prelude::*;
 
 use crate::state::*;
@@ -28,7 +27,6 @@ pub struct TokensMerged {
     pub amount: u64,
     pub timestamp: i64,
 }
-
 
 #[event]
 pub struct OrderPlaced {
@@ -62,7 +60,6 @@ pub struct MarketOrderExecuted {
     pub timestamp: i64,
 }
 
-
 #[event]
 pub struct OrderCancelled {
     pub market_id: u32,
@@ -71,5 +68,23 @@ pub struct OrderCancelled {
     pub side: OrderSide,
     pub token_type: TokenType,
     pub remaining_quantity: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct FundsClaimed {
+    pub market_id: u32,
+    pub user: Pubkey,
+    pub collateral_amount: u64,
+    pub yes_amount: u64,
+    pub no_amount: u64,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct MetadataUpdated {
+    pub market_id: u32,
+    pub authority: Pubkey,
+    pub new_metadata_url: String,
     pub timestamp: i64,
 }

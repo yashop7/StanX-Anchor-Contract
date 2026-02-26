@@ -46,5 +46,13 @@ pub enum PredictionMarketError {
     #[msg("Orders still pending, cancel all orders before closing market")]
     OrdersStillPending,
     #[msg("OrderBook is full, cannot add more orders to this side")]
-    OrderBookFull
+    OrderBookFull,
+    #[msg("No claimable funds available")]
+    NothingToClaim,
+    #[msg("Outcome token account must be provided for SELL orders")]
+    OutcomeAccountRequired,
+    #[msg("Outcome token account owner does not match the signer")]
+    InvalidAccountOwner,
+    #[msg("Outcome token account mint does not match the market's outcome mint")]
+    InvalidMint,
 }
