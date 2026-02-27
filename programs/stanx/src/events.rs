@@ -88,3 +88,10 @@ pub struct MetadataUpdated {
     pub new_metadata_url: String,
     pub timestamp: i64,
 }
+
+#[event]
+pub struct MarketClosed {
+    pub market_id: u32,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
