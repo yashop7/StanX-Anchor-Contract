@@ -2,10 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Transfer},
-    token_interface::{
-        close_account, transfer_checked, CloseAccount, Mint, TokenAccount, TokenInterface,
-        TransferChecked,
-    },
+    token_interface::{TokenAccount, TokenInterface},
 };
 
 use crate::constants::*;
@@ -37,16 +34,16 @@ pub struct CancelOrder<'info> {
 
     #[account(
         mut,
-        constraint = collateral_vault.key() == market.collateral_vault // We can also used the .owner of vault to verify it's authority of market
+        constraint = collateral_vault.key() == market.collateral_vault
     )]
-    pub collateral_vault: InterfaceAccount<'info, TokenAccount>,
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = user_collateral.mint == market.collateral_mint,
         constraint = user_collateral.owner == user.key()
     )]
-    pub user_collateral: InterfaceAccount<'info, TokenAccount>,
+    pub user_collateral: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -55,46 +52,34 @@ pub struct CancelOrder<'info> {
     )]
     pub user_stats_account: Box<Account<'info, UserStats>>,
 
-    #[account(
-        mut,
-        constraint = user_outcome_yes.mint == market.outcome_yes_mint,
-        constraint = user_outcome_yes.owner == user.key()
-    )]
-    pub user_outcome_yes: InterfaceAccount<'info, TokenAccount>,
+    // At the time of Buy, not require this
+    #[account(mut)]
+    pub user_outcome_yes: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
 
-    #[account(
-        mut,
-        constraint = user_outcome_no.mint == market.outcome_no_mint,
-        constraint = user_outcome_no.owner == user.key()
-    )]
-    pub user_outcome_no: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub user_outcome_no: Option<Box<InterfaceAccount<'info, TokenAccount>>>,
 
     #[account(
         mut,
         constraint = yes_escrow.mint == market.outcome_yes_mint,
         constraint = yes_escrow.key() == market.yes_escrow
     )]
-    pub yes_escrow: InterfaceAccount<'info, TokenAccount>,
+    pub yes_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = no_escrow.mint == market.outcome_no_mint,
         constraint = no_escrow.key() == market.no_escrow
     )]
-    pub no_escrow: InterfaceAccount<'info, TokenAccount>,
+    pub no_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
 impl<'info> CancelOrder<'info> {
-    // THIS FUNCTION IS WRONG, WE SHOULD BE ABLE TO CANCEL THE PARTIALLY FILLED ORDER
     pub fn handler(&mut self, market_id: u32, order_id: u64) -> Result<()> {
-        // Order
-        // Iterate from the OrderBook, Remove that Order
-        // Reduce the Locked Amount from the User Stats Account
-        // Transfer his assets Escrow => User Token Account
-
         let market = &mut self.market;
         let orderbook = &mut self.orderbook;
 
@@ -154,12 +139,6 @@ impl<'info> CancelOrder<'info> {
             PredictionMarketError::NotAuthorized
         );
 
-        // Cannot cancel partially filled orders
-        require!(
-            order_found.filledquantity == 0,
-            PredictionMarketError::OrderPartiallyFilled
-        );
-
         // Reducing the Locked Quantity
 
         if order_side == OrderSide::Buy {
@@ -193,6 +172,12 @@ impl<'info> CancelOrder<'info> {
                 ),
                 locked_amount,
             )?;
+
+            // Track vault-level collateral leaving
+            market.total_collateral_locked = market
+                .total_collateral_locked
+                .checked_sub(locked_amount)
+                .ok_or(PredictionMarketError::MathOverflow)?;
         } else {
             // For sell orders, unlock tokens
             let locked_quantity = order_found
@@ -201,8 +186,18 @@ impl<'info> CancelOrder<'info> {
                 .ok_or(PredictionMarketError::MathOverflow)?;
 
             let (user_token_account, token_escrow) = match order_token_type {
-                TokenType::Yes => (&self.user_outcome_yes, &self.yes_escrow),
-                TokenType::No => (&self.user_outcome_no, &self.no_escrow),
+                TokenType::Yes => (
+                    self.user_outcome_yes
+                        .as_ref()
+                        .ok_or(PredictionMarketError::OutcomeAccountRequired)?,
+                    &self.yes_escrow,
+                ),
+                TokenType::No => (
+                    self.user_outcome_no
+                        .as_ref()
+                        .ok_or(PredictionMarketError::OutcomeAccountRequired)?,
+                    &self.no_escrow,
+                ),
             };
 
             match order_token_type {

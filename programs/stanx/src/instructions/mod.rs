@@ -1,4 +1,5 @@
 pub mod cancelorder;
+pub mod claimfunds;
 pub mod claimrewards;
 pub mod closemarket;
 pub mod initialise;
@@ -7,8 +8,10 @@ pub mod marketorder;
 pub mod mergetoken;
 pub mod setwinner;
 pub mod splittoken;
+pub mod update_metadata;
 
 pub use cancelorder::*;
+pub use claimfunds::*;
 pub use claimrewards::*;
 pub use closemarket::*;
 pub use initialise::*;
@@ -17,3 +20,4 @@ pub use marketorder::*;
 pub use mergetoken::*;
 pub use setwinner::*;
 pub use splittoken::*;
+pub use update_metadata::*;

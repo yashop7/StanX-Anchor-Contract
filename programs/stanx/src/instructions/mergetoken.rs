@@ -1,12 +1,12 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    token::{self, Burn, Token, Transfer},
-    token_interface::{Mint, TokenAccount},
+    token::{self, Burn, Transfer},
+    token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
 use crate::constants::*;
 use crate::error::*;
-use crate::state::{Market, UserStats};
+use crate::state::Market;
 
 #[derive(Accounts)]
 #[instruction(market_id: u32)]
@@ -52,13 +52,7 @@ pub struct MergeTokens<'info> {
         constraint = user_outcome_yes.owner == user.key(),
         constraint = user_outcome_yes.mint == market.outcome_yes_mint
     )]
-    pub user_outcome_yes: Box<InterfaceAccount<'info, TokenAccount>>, // Ohh we willn't make this account here,
-    #[account(
-        mut,
-        seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
-        bump = user_stats_account.bump
-    )]
-    pub user_stats_account: Box<Account<'info, UserStats>>,
+    pub user_outcome_yes: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -66,11 +60,11 @@ pub struct MergeTokens<'info> {
         constraint = user_outcome_no.mint == market.outcome_no_mint
     )]
     pub user_outcome_no: Box<InterfaceAccount<'info, TokenAccount>>,
-    pub token_program: Program<'info, Token>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 impl<'info> MergeTokens<'info> {
-    pub fn merge_tokens(&mut self, _market_id: u32) -> Result<()> {
+    pub fn merge_tokens(&mut self, _market_id: u32, amount: u64) -> Result<()> {
         require!(
             Clock::get()?.unix_timestamp < self.market.settlement_deadline,
             PredictionMarketError::MarketExpired
@@ -80,11 +74,17 @@ impl<'info> MergeTokens<'info> {
             PredictionMarketError::MarketAlreadySettled
         );
 
-        let bal_a = self.user_outcome_yes.amount;
-        let bal_b = self.user_outcome_no.amount;
-        let amount = bal_a.min(bal_b);
-
+        // User specifies exactly how many YES+NO token pairs to merge back into collateral.
+        // Both balances must be >= amount, since we burn equal quantities of each.
         require!(amount > 0, PredictionMarketError::InvalidAmount);
+        require!(
+            self.user_outcome_yes.amount >= amount,
+            PredictionMarketError::NotEnoughBalance
+        );
+        require!(
+            self.user_outcome_no.amount >= amount,
+            PredictionMarketError::NotEnoughBalance
+        );
 
         token::burn(
             CpiContext::new(
@@ -129,17 +129,6 @@ impl<'info> MergeTokens<'info> {
         self.market.total_collateral_locked = self
             .market
             .total_collateral_locked
-            .checked_sub(amount)
-            .ok_or(PredictionMarketError::MathOverflow)?;
-
-        let user_stats = &mut self.user_stats_account;
-
-        user_stats.locked_yes = user_stats
-            .locked_yes
-            .checked_sub(amount)
-            .ok_or(PredictionMarketError::MathOverflow)?;
-        user_stats.locked_no = user_stats
-            .locked_no
             .checked_sub(amount)
             .ok_or(PredictionMarketError::MathOverflow)?;
 

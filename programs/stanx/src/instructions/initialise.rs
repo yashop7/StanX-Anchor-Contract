@@ -1,4 +1,5 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::constants::*;
@@ -80,12 +81,13 @@ pub struct InitializeMarket<'info> {
         init,
         payer = authority,
         seeds = [ORDERBOOK_SEED, market_id.to_le_bytes().as_ref()],
-        space = OrderBook::space(0), // Start with 0 orders, will realloc as needed
+        space = OrderBook::space(MAX_ORDERS_PER_SIDE),
         bump
     )]
     pub orderbook: Box<Account<'info, OrderBook>>,
 
     pub system_program: Program<'info, System>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Interface<'info, TokenInterface>,
 }
 
@@ -95,6 +97,7 @@ impl<'info> InitializeMarket<'info> {
         market_id: u32,
         settlement_deadline: i64,
         bumps: &InitializeMarketBumps,
+        meta_data_url: String,
     ) -> Result<()> {
         require!(
             settlement_deadline > Clock::get()?.unix_timestamp,
@@ -110,7 +113,7 @@ impl<'info> InitializeMarket<'info> {
             outcome_no_mint: self.outcome_no_mint.key(),
             yes_escrow: self.yes_escrow.key(),
             no_escrow: self.no_escrow.key(),
-            meta_data_url: String::from(""),
+            meta_data_url,
             is_settled: false,
             winning_outcome: None,
             total_collateral_locked: 0,
