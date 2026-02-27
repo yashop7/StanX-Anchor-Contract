@@ -3,6 +3,7 @@ use crate::error::*;
 use crate::events::*;
 use crate::state::*;
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::{
     token::{self, Burn, Transfer},
     token_interface::{Mint, TokenAccount, TokenInterface},
@@ -21,16 +22,21 @@ pub struct ClaimRewards<'info> {
     )]
     pub market: Account<'info, Market>,
 
+    #[account(constraint = collateral_mint.key() == market.collateral_mint)]
+    pub collateral_mint: InterfaceAccount<'info, Mint>,
+
     #[account(
-        mut,
-        constraint = user_collateral.mint == market.collateral_mint,
-        constraint = user_collateral.owner == user.key()
+        init_if_needed,
+        payer = user,
+        associated_token::mint = collateral_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_collateral: InterfaceAccount<'info, TokenAccount>,
 
     #[account(
         mut,
-        constraint = collateral_vault.key() == market.collateral_vault // We can also used the .owner of vault to verify it's authority of market
+        constraint = collateral_vault.key() == market.collateral_vault
     )]
     pub collateral_vault: InterfaceAccount<'info, TokenAccount>,
 
@@ -60,7 +66,9 @@ pub struct ClaimRewards<'info> {
     )]
     pub user_outcome_no: InterfaceAccount<'info, TokenAccount>,
 
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> ClaimRewards<'info> {
@@ -74,6 +82,12 @@ impl<'info> ClaimRewards<'info> {
             .market
             .winning_outcome
             .ok_or(PredictionMarketError::WinningOutcomeNotSet)?;
+
+        // If the result is a draw (Neither), nobody gets to claim
+        require!(
+            winner != WinningOutcome::Neither,
+            PredictionMarketError::NoWinnersInDraw
+        );
 
         let is_yes_winner = matches!(winner, WinningOutcome::OutcomeA);
 
