@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
 use anchor_spl::{
-    associated_token::AssociatedToken, token::{self, Transfer}, token_interface::{
-        CloseAccount, Mint, TokenInterface, TransferChecked, close_account, TokenAccount , transfer_checked
-    }
+    associated_token::AssociatedToken,
+    token::{self, Transfer},
+    token_interface::{Mint, TokenAccount, TokenInterface},
 };
 
 use crate::constants::*;
@@ -34,16 +34,16 @@ pub struct MarketOrder<'info> {
 
     #[account(
         mut,
-        constraint = collateral_vault.key() == market.collateral_vault // We can also used the .owner of vault to verify it's authority of market
+        constraint = collateral_vault.key() == market.collateral_vault
     )]
-    pub collateral_vault : InterfaceAccount<'info, TokenAccount>,
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = user_collateral.mint == market.collateral_mint,
         constraint = user_collateral.owner == user.key()
     )]
-    pub user_collateral : InterfaceAccount<'info, TokenAccount>,
+    pub user_collateral: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         init_if_needed,
@@ -52,19 +52,29 @@ pub struct MarketOrder<'info> {
         seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump
     )]
-    pub user_stats_account : Box<Account<'info,UserStats>>,
+    pub user_stats_account: Box<Account<'info, UserStats>>,
+
+    #[account(constraint = outcome_yes_mint.key() == market.outcome_yes_mint)]
+    pub outcome_yes_mint: Box<InterfaceAccount<'info, Mint>>,
+
+    #[account(constraint = outcome_no_mint.key() == market.outcome_no_mint)]
+    pub outcome_no_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        mut,
-        constraint = user_outcome_yes.mint == market.outcome_yes_mint,
-        constraint = user_outcome_yes.owner == user.key()
+        init_if_needed,
+        payer = user,
+        associated_token::mint = outcome_yes_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_outcome_yes: Box<InterfaceAccount<'info, TokenAccount>>,
-    
+
     #[account(
-        mut,
-        constraint = user_outcome_no.mint == market.outcome_no_mint,
-        constraint = user_outcome_no.owner == user.key()
+        init_if_needed,
+        payer = user,
+        associated_token::mint = outcome_no_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
     pub user_outcome_no: Box<InterfaceAccount<'info, TokenAccount>>,
 
@@ -73,18 +83,18 @@ pub struct MarketOrder<'info> {
         constraint = yes_escrow.mint == market.outcome_yes_mint,
         constraint = yes_escrow.key() == market.yes_escrow
     )]
-    pub yes_escrow : Box<InterfaceAccount<'info, TokenAccount>>,
+    pub yes_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = no_escrow.mint == market.outcome_no_mint,
         constraint = no_escrow.key() == market.no_escrow
     )]
-    pub no_escrow : Box<InterfaceAccount<'info, TokenAccount>>,
-
+    pub no_escrow: Box<InterfaceAccount<'info, TokenAccount>>,
 
     pub system_program: Program<'info, System>,
-    pub token_program : Interface<'info, TokenInterface>
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 impl<'info> MarketOrder<'info> {
@@ -99,9 +109,6 @@ impl<'info> MarketOrder<'info> {
         remaining_accounts: &[AccountInfo<'info>],
         program_id: &Pubkey,
     ) -> Result<()> {
-        // Sorting the Vectors
-        // Transfer the Collateral
-        // What about the order is not completed fully
         let market = &mut self.market;
         let orderbook = &mut self.orderbook;
 
@@ -182,6 +189,12 @@ impl<'info> MarketOrder<'info> {
             let user_stats = &mut self.user_stats_account;
             user_stats.locked_collateral = user_stats
                 .locked_collateral
+                .checked_add(order_amount)
+                .ok_or(PredictionMarketError::MathOverflow)?;
+
+            // Track vault-level collateral
+            market.total_collateral_locked = market
+                .total_collateral_locked
                 .checked_add(order_amount)
                 .ok_or(PredictionMarketError::MathOverflow)?;
         } else {
@@ -477,6 +490,12 @@ impl<'info> MarketOrder<'info> {
                         .checked_sub(remaining_amount)
                         .ok_or(PredictionMarketError::MathOverflow)?;
 
+                    // Track vault-level collateral leaving
+                    market.total_collateral_locked = market
+                        .total_collateral_locked
+                        .checked_sub(remaining_amount)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
+
                     msg!("Returned {} remaining collateral to user", remaining_amount);
                 }
             }
@@ -496,6 +515,12 @@ impl<'info> MarketOrder<'info> {
                     ),
                     fullfilled_qty,
                 )?;
+
+                // Track vault-level collateral leaving (seller gets paid)
+                market.total_collateral_locked = market
+                    .total_collateral_locked
+                    .checked_sub(fullfilled_qty)
+                    .ok_or(PredictionMarketError::MathOverflow)?;
 
                 // Reduce locked tokens for seller
                 // For Sell orders: fullfilled_qty = collateral received, we need tokens sold
