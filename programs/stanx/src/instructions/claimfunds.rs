@@ -16,6 +16,7 @@ pub struct ClaimFunds<'info> {
     pub user: Signer<'info>,
 
     #[account(
+        mut,
         seeds = [MARKET_SEED, market.market_id.to_le_bytes().as_ref()],
         bump = market.bump,
         constraint = market.market_id == market_id
@@ -122,6 +123,13 @@ impl<'info> ClaimFunds<'info> {
                 claimable_collateral,
             )?;
             self.user_stats.claimable_collateral = 0;
+
+            // Track vault-level collateral leaving
+            self.market.total_collateral_locked = self
+                .market
+                .total_collateral_locked
+                .checked_sub(claimable_collateral)
+                .ok_or(PredictionMarketError::MathOverflow)?;
         }
 
         if claimable_yes > 0 {

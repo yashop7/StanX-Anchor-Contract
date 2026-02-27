@@ -95,3 +95,24 @@ pub struct MarketClosed {
     pub authority: Pubkey,
     pub timestamp: i64,
 }
+
+#[event]
+pub struct WinningSideSet {
+    pub market_id: u32,
+    pub winning_outcome: WinningOutcome,
+    pub authority: Pubkey,
+    pub timestamp: i64,
+}
+
+#[event]
+pub struct OrderMatched {
+    pub market_id: u32,
+    pub taker_order_id: u64,
+    pub maker_order_id: u64,
+    pub taker: Pubkey,
+    pub maker: Pubkey,
+    pub token_type: TokenType,
+    pub price: u64,
+    pub quantity: u64,
+    pub timestamp: i64,
+}

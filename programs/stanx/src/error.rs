@@ -55,4 +55,8 @@ pub enum PredictionMarketError {
     InvalidAccountOwner,
     #[msg("Outcome token account mint does not match the market's outcome mint")]
     InvalidMint,
+    #[msg("Settlement deadline has not been reached yet; market is still live")]
+    SettlementDeadlineNotReached,
+    #[msg("Market result is a draw; no winners to claim rewards")]
+    NoWinnersInDraw,
 }
