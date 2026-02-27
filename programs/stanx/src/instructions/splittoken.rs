@@ -1,9 +1,10 @@
-use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
-
 use crate::constants::*;
 use crate::error::*;
 use crate::state::{Market, UserStats};
+use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, MintTo, Transfer};
+use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 #[derive(Accounts)]
 #[instruction(market_id: u32)]
@@ -23,37 +24,42 @@ pub struct SplitToken<'info> {
         constraint = user_collateral.mint == market.collateral_mint,
         constraint = user_collateral.owner == user.key()
     )]
-    pub user_collateral: Box<Account<'info, TokenAccount>>,
+    pub user_collateral: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
-        constraint = collateral_vault.key() == market.collateral_vault // We can also used the .owner of vault to verify it's authority of market
+        constraint = collateral_vault.key() == market.collateral_vault
     )]
-    pub collateral_vault: Box<Account<'info, TokenAccount>>,
+    pub collateral_vault: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
         constraint = outcome_yes_mint.key() == market.outcome_yes_mint
     )]
-    pub outcome_yes_mint: Box<Account<'info, Mint>>,
+    pub outcome_yes_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(
         mut,
         constraint = outcome_no_mint.key() == market.outcome_no_mint
     )]
-    pub outcome_no_mint: Box<Account<'info, Mint>>,
-    #[account(
-        mut,
-        constraint = user_outcome_yes.owner == user.key(),
-        constraint = user_outcome_yes.mint == market.outcome_yes_mint
-    )]
-    pub user_outcome_yes: Box<Account<'info, TokenAccount>>, // Ohh we willn't make this account here,
+    pub outcome_no_mint: Box<InterfaceAccount<'info, Mint>>,
 
     #[account(
-        mut,
-        constraint = user_outcome_no.owner == user.key(),
-        constraint = user_outcome_no.mint == market.outcome_no_mint
+        init_if_needed,
+        payer = user,
+        associated_token::mint = outcome_yes_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
     )]
-    pub user_outcome_no: Box<Account<'info, TokenAccount>>,
+    pub user_outcome_yes: Box<InterfaceAccount<'info, TokenAccount>>,
+
+    #[account(
+        init_if_needed,
+        payer = user,
+        associated_token::mint = outcome_no_mint,
+        associated_token::authority = user,
+        associated_token::token_program = token_program,
+    )]
+    pub user_outcome_no: Box<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         init_if_needed,
@@ -65,7 +71,8 @@ pub struct SplitToken<'info> {
     pub user_stats_account: Box<Account<'info, UserStats>>,
 
     pub system_program: Program<'info, System>,
-    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub token_program: Interface<'info, TokenInterface>,
 }
 
 impl<'info> SplitToken<'info> {
@@ -136,18 +143,18 @@ impl<'info> SplitToken<'info> {
             .ok_or(PredictionMarketError::MathOverflow)?;
 
         let user_stats = &mut self.user_stats_account;
-        user_stats.set_inner(UserStats {
-            user: self.user.key(),
-            market_id,
-            locked_yes: 0,
-            claimable_yes: 0,
-            locked_no: 0,
-            claimable_no: 0,
-            locked_collateral: 0,
-            claimable_collateral: 0,
-            reward_claimed: false,
-            bump: bumps.user_stats_account,
-        });
+        if user_stats.user == Pubkey::default() {
+            user_stats.user = self.user.key();
+            user_stats.market_id = market_id;
+            user_stats.locked_yes = 0;
+            user_stats.claimable_yes = 0;
+            user_stats.locked_no = 0;
+            user_stats.claimable_no = 0;
+            user_stats.locked_collateral = 0;
+            user_stats.claimable_collateral = 0;
+            user_stats.reward_claimed = false;
+            user_stats.bump = bumps.user_stats_account;
+        }
 
         msg!("Minted {} outcome tokens for user", amount);
 
