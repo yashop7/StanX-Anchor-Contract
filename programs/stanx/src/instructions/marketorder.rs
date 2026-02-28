@@ -466,6 +466,11 @@ impl<'info> MarketOrder<'info> {
                     .checked_sub(collateral_spent)
                     .ok_or(PredictionMarketError::MathOverflow)?;
 
+                market.total_collateral_locked = market
+                    .total_collateral_locked
+                    .checked_sub(collateral_spent)
+                    .ok_or(PredictionMarketError::MathOverflow)?;
+
                 // Returning remaining collateral if any remains
                 if remaining_amount > 0 {
                     let market_id_bytes = market.market_id.to_le_bytes();

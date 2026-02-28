@@ -2,10 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::{
     associated_token::AssociatedToken,
     token::{self, Transfer},
-    token_interface::{
-        close_account, transfer_checked, CloseAccount, Mint, TokenAccount, TokenInterface,
-        TransferChecked,
-    },
+    token_interface::{TokenAccount, TokenInterface},
 };
 
 use crate::constants::*;
@@ -57,19 +54,13 @@ pub struct PlaceOrder<'info> {
     )]
     pub user_stats_account: Box<Account<'info, UserStats>>,
 
-    #[account(
-        mut,
-        constraint = user_outcome_yes.mint == market.outcome_yes_mint,
-        constraint = user_outcome_yes.owner == user.key()
-    )]
-    pub user_outcome_yes: InterfaceAccount<'info, TokenAccount>,
+    // Declaring them Optional because we don't need them in case of Buy Order, we are only dealing with collateral account &
+    // UserStats Account
+    #[account(mut)]
+    pub user_outcome_yes: Option<InterfaceAccount<'info, TokenAccount>>,
 
-    #[account(
-        mut,
-        constraint = user_outcome_no.mint == market.outcome_no_mint,
-        constraint = user_outcome_no.owner == user.key()
-    )]
-    pub user_outcome_no: InterfaceAccount<'info, TokenAccount>,
+    #[account(mut)]
+    pub user_outcome_no: Option<InterfaceAccount<'info, TokenAccount>>,
 
     #[account(
         mut,
@@ -86,8 +77,8 @@ pub struct PlaceOrder<'info> {
     pub no_escrow: InterfaceAccount<'info, TokenAccount>,
 
     pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
     pub token_program: Interface<'info, TokenInterface>,
+    pub system_program: Program<'info, System>,
 }
 
 impl<'info> PlaceOrder<'info> {
@@ -99,6 +90,8 @@ impl<'info> PlaceOrder<'info> {
     ///   - BUY order: Buyer's collateral locked in vault immediately
     /// - When matched:
     ///   - Buyer's & Sellers claimable amount will be incremented in their UserStats Account (user can claim later from dashboard)
+    ///   - If the qty left after all the matching, there are 2 cases, Orderbook Exceeded => remaning Qty is deposited in the claimable assest or
+    ///     in the other case, the order is just simply appended to the orderbook
     ///   - Person whose order is on the orderbook first can withdraw collateral from vault separately
     pub fn handler(
         &mut self,
@@ -148,27 +141,43 @@ impl<'info> PlaceOrder<'info> {
             user_stats.bump = bumps.user_stats_account;
         }
 
-        let (_mint_type, user_token_account, token_escrow) = match token_type {
-            TokenType::Yes => (
-                market.outcome_yes_mint,
-                &self.user_outcome_yes,
-                &self.yes_escrow,
-            ),
-            TokenType::No => (
-                market.outcome_no_mint,
-                &self.user_outcome_no,
-                &self.no_escrow,
-            ),
-        };
-
         let amount = quantity
             .checked_mul(price)
             .ok_or(PredictionMarketError::MathOverflow)?;
 
         // Lock funds immediately when placing order
-        // For Buyer Lock collateral in Vault
-        // For Seller Locking tokens in Escrow
+        // For Buyer: lock collateral in Vault, no outcome ATAs needed
+        // For Seller: lock YES/NO tokens in Escrow, outcome ATAs must exist
         if side == OrderSide::Sell {
+            // Unwrap the relevant outcome account — SELL callers must provide it
+            let (user_token_account, token_escrow) = match token_type {
+                TokenType::Yes => (
+                    self.user_outcome_yes
+                        .as_ref()
+                        .ok_or(PredictionMarketError::OutcomeAccountRequired)?,
+                    &self.yes_escrow,
+                ),
+                TokenType::No => (
+                    self.user_outcome_no
+                        .as_ref()
+                        .ok_or(PredictionMarketError::OutcomeAccountRequired)?,
+                    &self.no_escrow,
+                ),
+            };
+
+            require!(
+                user_token_account.owner == self.user.key(),
+                PredictionMarketError::InvalidAccountOwner
+            );
+            require!(
+                user_token_account.mint
+                    == match token_type {
+                        TokenType::Yes => market.outcome_yes_mint,
+                        TokenType::No => market.outcome_no_mint,
+                    },
+                PredictionMarketError::InvalidMint
+            );
+
             require!(
                 user_token_account.amount >= quantity,
                 PredictionMarketError::NotEnoughBalance
@@ -224,6 +233,12 @@ impl<'info> PlaceOrder<'info> {
             let user_stats = &mut self.user_stats_account;
             user_stats.locked_collateral = user_stats
                 .locked_collateral
+                .checked_add(amount)
+                .ok_or(PredictionMarketError::MathOverflow)?;
+
+            // Track vault-level collateral for close_market safety check
+            market.total_collateral_locked = market
+                .total_collateral_locked
                 .checked_add(amount)
                 .ok_or(PredictionMarketError::MathOverflow)?;
         }
@@ -312,12 +327,23 @@ impl<'info> PlaceOrder<'info> {
                     .checked_add(min_qty)
                     .ok_or(PredictionMarketError::MathOverflow)?;
 
+                // collateral_amount = what the SELLER receives (at book_price)
                 let collateral_amount = min_qty
                     .checked_mul(book_price)
                     .ok_or(PredictionMarketError::MathOverflow)?;
 
                 // Credit the appropriate user stats based on whether this is a buy or sell order
                 if is_buy_order {
+                    // How much the buyer originally locked for these tokens (at their price)
+                    let locked_at_our_price = min_qty
+                        .checked_mul(order.price)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
+
+                    // Price improvement surplus: buyer offered more than the fill price
+                    let surplus = locked_at_our_price
+                        .checked_sub(collateral_amount)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
+
                     match token_type {
                         TokenType::Yes => {
                             self.user_stats_account.claimable_yes = self
@@ -335,13 +361,32 @@ impl<'info> PlaceOrder<'info> {
                         }
                     }
 
+                    // Releasing the full locked collateral from UserStats account
                     self.user_stats_account.locked_collateral = self
                         .user_stats_account
                         .locked_collateral
-                        .checked_sub(collateral_amount)
+                        .checked_sub(locked_at_our_price)
                         .ok_or(PredictionMarketError::MathOverflow)?;
 
+                    // Refund the surplus as claimable collateral
+                    if surplus > 0 {
+                        self.user_stats_account.claimable_collateral = self
+                            .user_stats_account
+                            .claimable_collateral
+                            .checked_add(surplus)
+                            .ok_or(PredictionMarketError::MathOverflow)?;
+
+                        // Surplus collateral is no longer locked in the vault — release it now
+                        // so total_collateral_locked stays in sync with the actual vault balance
+                        market.total_collateral_locked = market
+                            .total_collateral_locked
+                            .checked_sub(surplus)
+                            .ok_or(PredictionMarketError::MathOverflow)?;
+                    }
+
                     // Credit SELLER (from matching order) with collateral
+                    // This is a very expensive task,
+                    // to find the PDA, find_program_address (PDA calc) →  ~1,500 CU  ← expensive !
                     let seller_pubkey = matching_orders[idx].user_key;
                     let seller_stats_pda = Pubkey::find_program_address(
                         &[
@@ -392,6 +437,11 @@ impl<'info> PlaceOrder<'info> {
                         seller_credited,
                         PredictionMarketError::SellerStatsAccountNotProvided
                     );
+
+                    market.total_collateral_locked = market
+                        .total_collateral_locked
+                        .checked_sub(collateral_amount)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
 
                     msg!(
                         "Trade: Buyer +{} claimable {:?}, Seller +{} claimable collateral",
@@ -500,12 +550,14 @@ impl<'info> PlaceOrder<'info> {
             }
         }
 
-        // If order is not fully filled, add it to the appropriate order book
+        // If order is not fully filled
+        // 1. If orderbook side is full, Transfer unfilled quantity to claimable
+        // 2. If orderbook side is not full, append the unfilled quantity on the book
         if order.filledquantity < order.quantity {
-            // Calculate space requirements BEFORE getting mutable references
-            let current_space = orderbook.to_account_info().data_len();
-            let required_space = orderbook.space_with_growth(ORDERBOOK_GROWTH_BATCH);
-            let needs_realloc = required_space > current_space;
+            let unfilled_qty = order
+                .quantity
+                .checked_sub(order.filledquantity)
+                .ok_or(PredictionMarketError::MathOverflow)?;
 
             let order_vec = match (token_type, side) {
                 (TokenType::Yes, OrderSide::Buy) => &mut orderbook.yes_buy_orders,
@@ -514,60 +566,68 @@ impl<'info> PlaceOrder<'info> {
                 (TokenType::No, OrderSide::Sell) => &mut orderbook.no_sell_orders,
             };
 
-            // Check if we've exceeded the maximum orders for this side
-            require!(
-                order_vec.len() < MAX_ORDERS_PER_SIDE,
-                PredictionMarketError::OrderBookFull
-            );
+            // Transfer the assets to claimable if orderbook side is full
+            if order_vec.len() >= MAX_ORDERS_PER_SIDE {
+                if side == OrderSide::Buy {
+                    let unfilled_collateral = unfilled_qty
+                        .checked_mul(order.price)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
 
-            // Reallocate if needed (user pays ONLY for the growth batch, not entire max size)
-            if needs_realloc {
-                let new_space = required_space.min(OrderBook::space(MAX_ORDERS_PER_SIDE));
-                orderbook.to_account_info().resize(new_space)?;
+                    self.user_stats_account.locked_collateral = self
+                        .user_stats_account
+                        .locked_collateral
+                        .checked_sub(unfilled_collateral)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
 
-                // Transfer rent from user to orderbook account for the INCREMENTAL space
-                let rent = Rent::get()?;
-                let new_minimum_balance = rent.minimum_balance(new_space);
-                let current_balance = orderbook.to_account_info().lamports();
+                    self.user_stats_account.claimable_collateral = self
+                        .user_stats_account
+                        .claimable_collateral
+                        .checked_add(unfilled_collateral)
+                        .ok_or(PredictionMarketError::MathOverflow)?;
+                } else {
+                    match token_type {
+                        TokenType::Yes => {
+                            self.user_stats_account.locked_yes = self
+                                .user_stats_account
+                                .locked_yes
+                                .checked_sub(unfilled_qty)
+                                .ok_or(PredictionMarketError::MathOverflow)?;
 
-                if new_minimum_balance > current_balance {
-                    let lamports_needed = new_minimum_balance - current_balance;
-                    anchor_lang::system_program::transfer(
-                        CpiContext::new(
-                            self.system_program.to_account_info(),
-                            anchor_lang::system_program::Transfer {
-                                from: self.user.to_account_info(),
-                                to: orderbook.to_account_info(),
-                            },
-                        ),
-                        lamports_needed,
-                    )?;
+                            self.user_stats_account.claimable_yes = self
+                                .user_stats_account
+                                .claimable_yes
+                                .checked_add(unfilled_qty)
+                                .ok_or(PredictionMarketError::MathOverflow)?;
+                        }
+                        TokenType::No => {
+                            self.user_stats_account.locked_no = self
+                                .user_stats_account
+                                .locked_no
+                                .checked_sub(unfilled_qty)
+                                .ok_or(PredictionMarketError::MathOverflow)?;
 
-                    msg!(
-                        "User paid {} lamports for orderbook growth (batch size: {})",
-                        lamports_needed,
-                        ORDERBOOK_GROWTH_BATCH
-                    );
+                            self.user_stats_account.claimable_no = self
+                                .user_stats_account
+                                .claimable_no
+                                .checked_add(unfilled_qty)
+                                .ok_or(PredictionMarketError::MathOverflow)?;
+                        }
+                    }
                 }
-                // Reload the orderbook
-                orderbook.reload()?;
-            }
 
-            // Re-get mutable reference after reallocation
-            let order_vec = match (token_type, side) {
-                (TokenType::Yes, OrderSide::Buy) => &mut orderbook.yes_buy_orders,
-                (TokenType::Yes, OrderSide::Sell) => &mut orderbook.yes_sell_orders,
-                (TokenType::No, OrderSide::Buy) => &mut orderbook.no_buy_orders,
-                (TokenType::No, OrderSide::Sell) => &mut orderbook.no_sell_orders,
-            };
-
-            order_vec.push(order);
-
-            // Sorting Buy order in Decrement & Sell orders in Increment acc. to price
-            if side == OrderSide::Buy {
-                order_vec.sort_by(|a, b| b.price.cmp(&a.price));
+                msg!(
+                    "Orderbook full: {} unfilled quantity moved to claimable (IOC cancelled)",
+                    unfilled_qty
+                );
             } else {
-                order_vec.sort_by(|a, b| a.price.cmp(&b.price));
+                order_vec.push(order);
+
+                // Keeping buy orders sorted highest price first, sell orders lowest price first
+                if side == OrderSide::Buy {
+                    order_vec.sort_by(|a, b| b.price.cmp(&a.price));
+                } else {
+                    order_vec.sort_by(|a, b| a.price.cmp(&b.price));
+                }
             }
         }
 

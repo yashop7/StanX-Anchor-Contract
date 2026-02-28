@@ -65,15 +65,6 @@ pub struct MergeTokens<'info> {
 
 impl<'info> MergeTokens<'info> {
     pub fn merge_tokens(&mut self, _market_id: u32, amount: u64) -> Result<()> {
-        require!(
-            Clock::get()?.unix_timestamp < self.market.settlement_deadline,
-            PredictionMarketError::MarketExpired
-        );
-        require!(
-            !self.market.is_settled,
-            PredictionMarketError::MarketAlreadySettled
-        );
-
         // User specifies exactly how many YES+NO token pairs to merge back into collateral.
         // Both balances must be >= amount, since we burn equal quantities of each.
         require!(amount > 0, PredictionMarketError::InvalidAmount);

@@ -14,6 +14,7 @@ use anchor_spl::{
 pub struct ClaimRewards<'info> {
     #[account(mut)]
     pub user: Signer<'info>,
+
     #[account(
         mut,
         seeds = [MARKET_SEED, market.market_id.to_le_bytes().as_ref()],
@@ -21,6 +22,14 @@ pub struct ClaimRewards<'info> {
         constraint = market.market_id == market_id
     )]
     pub market: Account<'info, Market>,
+
+    #[account(
+        mut,
+        seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
+        bump = user_stats.bump,
+        constraint = user_stats.user == user.key()
+    )]
+    pub user_stats: Account<'info, UserStats>,
 
     #[account(constraint = collateral_mint.key() == market.collateral_mint)]
     pub collateral_mint: InterfaceAccount<'info, Mint>,
@@ -76,6 +85,12 @@ impl<'info> ClaimRewards<'info> {
         require!(
             self.market.is_settled,
             PredictionMarketError::MarketNotSettled
+        );
+
+        // check against double-claiming
+        require!(
+            !self.user_stats.reward_claimed,
+            PredictionMarketError::NothingToClaim
         );
 
         let winner = self
@@ -145,6 +160,9 @@ impl<'info> ClaimRewards<'info> {
             .total_collateral_locked
             .checked_sub(amount)
             .ok_or(PredictionMarketError::MathOverflow)?;
+
+        // Rewards claimed set to true
+        self.user_stats.reward_claimed = true;
 
         let market_id_val = self.market.market_id;
         let user_key = self.user.key();
