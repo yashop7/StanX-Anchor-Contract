@@ -1,0 +1,21 @@
+{
+    "idl": "target/idl/prediction_market_turbin3.json",
+    "before": [],
+    "scripts": {
+        "js": {
+            "from": "@codama/renderers-js",
+            "args": [
+                "clients/js"
+            ]
+        },
+        "rust": {
+            "from": "@codama/renderers-rust",
+            "args": [
+                "clients/rust",
+                {
+                    "formatCode": true
+                }
+            ]
+        }
+    }
+}

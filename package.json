@@ -2,11 +2,18 @@
   "license": "ISC",
   "scripts": {
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
-    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
+    "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
+    "generate:client": "codama run js && codama run rust",
+    "postbuild": "anchor build && yarn generate:client"
   },
   "dependencies": {
+    "@codama/nodes-from-anchor": "^1.3.9",
+    "@codama/renderers": "^1.0.34",
+    "@codama/renderers-js": "^2.0.3",
+    "@codama/renderers-rust": "^2.0.1",
     "@coral-xyz/anchor": "^0.32.1",
-    "@solana/spl-token": "^0.4.14"
+    "@solana/spl-token": "^0.4.14",
+    "codama": "^1.5.1"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",
