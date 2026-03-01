@@ -5,6 +5,9 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+# [programs.devnet]
+# prediction_market_turbin3 = "AA9xwyVDCqHJTSPtigKyvLhaMpgjmU7CCT99SXWt43DP"
+
 [programs.localnet]
 prediction_market_turbin3 = "AA9xwyVDCqHJTSPtigKyvLhaMpgjmU7CCT99SXWt43DP"
 
