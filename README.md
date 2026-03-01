@@ -36,8 +36,8 @@ Traditional prediction markets use bonding curve AMMs. StanX implements a **Cent
 
 ## Architecture
 
-<img width="499" height="407" alt="Screenshot 2026-03-02 at 4 25 23 AM" src="https://github.com/user-attachments/assets/a11a88ad-2c5c-4a25-a878-6fb0151b2824" />
 <img width="339" height="206" alt="Screenshot 2026-03-02 at 4 26 04 AM" src="https://github.com/user-attachments/assets/de21bc21-8e2a-4dfb-aa24-8e940b107711" />
+<img width="499" height="407" alt="Screenshot 2026-03-02 at 4 25 23 AM" src="https://github.com/user-attachments/assets/a11a88ad-2c5c-4a25-a878-6fb0151b2824" />
 
 ### Core State Accounts
 
