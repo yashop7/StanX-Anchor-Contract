@@ -36,7 +36,8 @@ Traditional prediction markets use bonding curve AMMs. StanX implements a **Cent
 
 ## Architecture
 
-**[INSERT ARCHITECTURE DIAGRAM HERE: System overview showing Program, PDAs, Vaults, and user interactions]**
+<img width="499" height="407" alt="Screenshot 2026-03-02 at 4 25 23 AM" src="https://github.com/user-attachments/assets/a11a88ad-2c5c-4a25-a878-6fb0151b2824" />
+<img width="339" height="206" alt="Screenshot 2026-03-02 at 4 26 04 AM" src="https://github.com/user-attachments/assets/de21bc21-8e2a-4dfb-aa24-8e940b107711" />
 
 ### Core State Accounts
 
@@ -46,7 +47,6 @@ Traditional prediction markets use bonding curve AMMs. StanX implements a **Cent
 
 **OrderBook PDA** (`[ORDERBOOK_SEED, market_id]`)  
 - 4 sorted vectors: `yes_buy_orders`, `yes_sell_orders`, `no_buy_orders`, `no_sell_orders`
-- Space: 10,021 bytes (32 orders × 78 bytes × 4 sides)
 
 **UserStats PDA** (`[USER_STATS_SEED, market_id, user]`)  
 - Tracks: `locked_collateral`, `locked_yes/no`, `claimable_collateral`, `claimable_yes/no`
@@ -67,6 +67,7 @@ Creates a new prediction market with outcome mints, vaults, and orderbook.
 
 ### 2. `split_tokens`
 Deposits collateral and mints paired YES+NO tokens (1:1:1 ratio).
+<img width="594" height="512" alt="Screenshot 2026-03-02 at 4 26 40 AM" src="https://github.com/user-attachments/assets/646c2b6d-389f-4457-9e2d-78ab74fc1eec" />
 
 ```
 Input:  100 USDC → Output: 100 YES + 100 NO tokens
@@ -78,6 +79,7 @@ Input:  100 USDC → Output: 100 YES + 100 NO tokens
 
 ### 3. `merge_tokens`
 Burns paired YES+NO tokens to redeem collateral (inverse of split).
+<img width="591" height="459" alt="Screenshot 2026-03-02 at 4 27 20 AM" src="https://github.com/user-attachments/assets/759a8678-6311-4400-84f2-0e446e8bb694" />
 
 ```
 Input: 50 YES + 50 NO → Output: 50 USDC
@@ -87,6 +89,7 @@ Input: 50 YES + 50 NO → Output: 50 USDC
 
 ### 4. `place_order` (Limit Order)
 Submits a limit order that matches immediately or rests on the book.
+<img width="596" height="644" alt="Screenshot 2026-03-02 at 4 27 54 AM" src="https://github.com/user-attachments/assets/0e5262d8-0833-421b-bcba-c7162260fddb" />
 
 **Parameters**: `side` (Buy/Sell), `token_type` (YES/NO), `quantity`, `price`, `max_iteration`
 
@@ -107,6 +110,7 @@ Book: SELL 100 YES @ 0.60 USDC
 
 ### 5. `market_order`
 Executes immediately at best available prices with no resting order.
+<img width="591" height="637" alt="Screenshot 2026-03-02 at 4 28 39 AM" src="https://github.com/user-attachments/assets/b75dd4da-cb5e-479a-9fe5-16e6c02ac62e" />
 
 **Parameters**: `order_amount` (collateral for buys, tokens for sells), `max_iteration`
 
@@ -117,12 +121,16 @@ Executes immediately at best available prices with no resting order.
 ### 6. `cancel_order`
 Removes a resting limit order and unlocks funds.
 
+<img width="592" height="535" alt="Screenshot 2026-03-02 at 4 28 49 AM" src="https://github.com/user-attachments/assets/f18fde1f-2e23-4025-95f6-8767c5edf7f7" />
+
 **Logic**: Search orderbook for `order_id`, verify ownership, refund unfilled portion, remove from vector
 
 ---
 
 ### 7. `set_winner`
 Authority-only settlement after deadline.
+
+<img width="593" height="442" alt="Screenshot 2026-03-02 at 4 29 18 AM" src="https://github.com/user-attachments/assets/9657edc7-95bd-4e29-9cc7-7cd95427c6de" />
 
 **Parameters**: `winning_outcome` (OutcomeA/OutcomeB/Neither)  
 **Effect**: Sets `is_settled = true`, removes mint authority from both tokens (prevents future splits)
@@ -138,6 +146,7 @@ Withdraws claimable balances earned from matched trades.
 
 ### 9. `claim_rewards`
 One-time redemption of winning tokens for collateral after settlement.
+<img width="598" height="510" alt="Screenshot 2026-03-02 at 4 29 02 AM" src="https://github.com/user-attachments/assets/4298ed10-ab39-4a22-a975-0c73750372e9" />
 
 ```
 Market settled: YES wins
@@ -200,8 +209,6 @@ anchor test                          # Full suite (localnet)
 anchor test -- --grep "Market Order" # Specific tests
 ```
 
-See [PRESENTATION_GUIDE.md](./PRESENTATION_GUIDE.md) for detailed walkthrough.
-
 ---
 
 ## Documentation
@@ -215,7 +222,6 @@ See [PRESENTATION_GUIDE.md](./PRESENTATION_GUIDE.md) for detailed walkthrough.
 ## Technical Reference
 
 **PDA Seeds**: `market`, `orderbook`, `user_stats`, `collateral_vault`, `yes_escrow`, `no_escrow`  
-**Constants**: `MAX_ORDERS_PER_SIDE = 32`, `MAX_METADATA_LENGTH = 200`  
 **Enums**: `WinningOutcome`, `TokenType`, `OrderSide`  
 **Events**: `MarketInitialized`, `OrderPlaced`, `OrderMatched`, `MarketOrderExecuted`, `WinningSideSet`, etc.
 
@@ -228,7 +234,6 @@ See [programs/stanx/src/](programs/stanx/src/) for full source code.
 ⚠️ **Not audited - use at own risk**
 
 - **Centralized settlement**: Authority controls `set_winner` (future: oracles)
-- **Orderbook capacity**: 32 orders/side max (extensible via cranking)
 - **Compute budget**: `max_iteration` param limits matching depth
 
 ---
@@ -258,5 +263,3 @@ Built with:
 Inspired by prediction market research from Polymarket, Kalshi, and the broader DeFi orderbook ecosystem.
 
 ---
-
-**Note**: This is a Proof-of-Concept implementation. The StanX platform (frontend + indexer) is under active development at [github.com/yashop7/Stanx](https://github.com/yashop7/Stanx).
