@@ -213,8 +213,8 @@ anchor test -- --grep "Market Order" # Specific tests
 
 ## Documentation
 
-- **Architecture**: [System Design Doc](https://docs.google.com/document/d/1Gz8__StJKRCUP8g1L1SKqGIB8xqP-ULBbnj2RbLEaHg/edit?usp=sharing) (PDA structure, compute optimization)
-- **User Stories**: [User Flow Analysis](https://docs.google.com/document/d/1Y15Y3g5-QQhOD_KBkGlWl56jKhsNQJHVomWOAFaSh1I/edit?usp=sharing) (Personas, requirements)
+- **Architecture**: [System Design Doc](https://drive.google.com/file/d/1qIhdnObFbG3sC4Z7kTC0z4bDumRWR50k/view?usp=sharing) (PDA structure, compute optimization)
+- **User Stories**: [User Flow Analysis](https://docs.google.com/document/d/1kb2oOKC2i7t3VkV_5XF4fl10P69JRHtWaddwTAy7-Ws/edit?usp=sharing) (Personas, requirements)
 - **Platform**: [StanX Frontend](https://github.com/yashop7/Stanx) (in progress)
 
 ---
