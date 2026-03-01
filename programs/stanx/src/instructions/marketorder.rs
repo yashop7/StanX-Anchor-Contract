@@ -129,7 +129,7 @@ impl<'info> MarketOrder<'info> {
 
         require!(
             order_amount > 0,
-            PredictionMarketError::InvalidOrderQuantity
+            PredictionMarketError::InvalidAmount
         );
 
         let user_stats: &mut Box<Account<'_, UserStats>> = &mut self.user_stats_account;

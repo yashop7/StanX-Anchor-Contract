@@ -8,6 +8,9 @@ skip-lint = false
 [programs.localnet]
 prediction_market_turbin3 = "AA9xwyVDCqHJTSPtigKyvLhaMpgjmU7CCT99SXWt43DP"
 
+# [programs.devnet]
+# prediction_market_turbin3 = "AA9xwyVDCqHJTSPtigKyvLhaMpgjmU7CCT99SXWt43DP"
+
 [registry]
 url = "https://api.apr.dev"
 
