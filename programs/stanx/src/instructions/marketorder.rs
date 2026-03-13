@@ -244,12 +244,14 @@ impl<'info> MarketOrder<'info> {
         let mut fullfilled_qty: u64 = 0; // Tokens in case of Buy // Collateral in case of selling
 
         while idx < matching_orders.len() && iteration < max_iteration && remaining_amount > 0 {
-            let (book_price, book_qty, book_filled_qty) = {
+            let (book_price, book_qty, book_filled_qty, maker_pubkey, maker_order_id) = {
                 let book_order = &matching_orders[idx];
                 (
                     book_order.price,
                     book_order.quantity,
                     book_order.filledquantity,
+                    book_order.user_key,
+                    book_order.id
                 )
             };
 
@@ -417,6 +419,18 @@ impl<'info> MarketOrder<'info> {
                     PredictionMarketError::BuyerStatsAccountNotProvided
                 );
             }
+
+            emit!(OrderMatched {
+                    market_id,
+                    maker_order_id,
+                    taker_side: side,
+                    taker: self.user.key(),
+                    maker: maker_pubkey,
+                    token_type,
+                    price: book_price,
+                    quantity: min_qty,
+                    timestamp: Clock::get()?.unix_timestamp,
+            });
 
             // Remove completed orders or advance to next
             if matching_orders[idx].filledquantity >= matching_orders[idx].quantity {
@@ -599,6 +613,8 @@ impl<'info> MarketOrder<'info> {
             order_amount - remaining_amount,
             remaining_amount
         );
+
+        
 
         emit!(MarketOrderExecuted {
             market_id,

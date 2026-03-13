@@ -6,6 +6,7 @@ use anchor_spl::{
 
 use crate::constants::*;
 use crate::error::*;
+use crate::events::*;
 use crate::state::Market;
 
 #[derive(Accounts)]
@@ -127,6 +128,13 @@ impl<'info> MergeTokens<'info> {
             "Merged {} pairs of outcome tokens back to collateral",
             amount
         );
+
+        emit!(TokensMerged {
+            market_id: self.market.market_id,
+            user: self.user.key(),
+            amount,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }

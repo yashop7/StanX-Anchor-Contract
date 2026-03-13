@@ -4,6 +4,7 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 use crate::constants::*;
 use crate::error::*;
+use crate::events::*;
 use crate::state::{Market, OrderBook};
 
 #[derive(Accounts)]
@@ -131,6 +132,17 @@ impl<'info> InitializeMarket<'info> {
         });
 
         msg!("Market initialized: {}", market_id);
+
+        emit!(MarketInitialized {
+            market_id,
+            authority: self.authority.key(),
+            settlement_deadline,
+            collateral_mint: self.collateral_mint.key(),
+            outcome_yes_mint: self.outcome_yes_mint.key(),
+            outcome_no_mint: self.outcome_no_mint.key(),
+            meta_data_url: self.market.meta_data_url.clone(),
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }

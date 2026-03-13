@@ -10,6 +10,8 @@ pub struct MarketInitialized {
     pub collateral_mint: Pubkey,
     pub outcome_yes_mint: Pubkey,
     pub outcome_no_mint: Pubkey,
+    pub meta_data_url: String,
+    pub timestamp: i64,
 }
 
 #[event]
@@ -107,8 +109,8 @@ pub struct WinningSideSet {
 #[event]
 pub struct OrderMatched {
     pub market_id: u32,
-    pub taker_order_id: u64,
     pub maker_order_id: u64,
+    pub taker_side: OrderSide,
     pub taker: Pubkey,
     pub maker: Pubkey,
     pub token_type: TokenType,

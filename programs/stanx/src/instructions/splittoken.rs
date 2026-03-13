@@ -1,5 +1,6 @@
 use crate::constants::*;
 use crate::error::*;
+use crate::events::*;
 use crate::state::{Market, UserStats};
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
@@ -157,6 +158,13 @@ impl<'info> SplitToken<'info> {
         }
 
         msg!("Minted {} outcome tokens for user", amount);
+
+        emit!(TokensSplit {
+            market_id,
+            user: self.user.key(),
+            amount,
+            timestamp: Clock::get()?.unix_timestamp,
+        });
 
         Ok(())
     }

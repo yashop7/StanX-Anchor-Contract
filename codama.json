@@ -5,13 +5,13 @@
         "js": {
             "from": "@codama/renderers-js",
             "args": [
-                "clients/js"
+                "clients/js-sdk"
             ]
         },
         "rust": {
             "from": "@codama/renderers-rust",
             "args": [
-                "clients/rust",
+                "clients/rust-sdk",
                 {
                     "formatCode": true
                 }

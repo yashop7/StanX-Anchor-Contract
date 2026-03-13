@@ -273,12 +273,14 @@ impl<'info> PlaceOrder<'info> {
 
         // Iterating through all order to find matching order
         while idx < matching_orders.len() && iteration < max_iteration {
-            let (book_price, book_qty, book_filled_qty) = {
+            let (book_price, book_qty, book_filled_qty, maker_order_id, maker_pubkey) = {
                 let book_order = &matching_orders[idx];
                 (
                     book_order.price,
                     book_order.quantity,
                     book_order.filledquantity,
+                    book_order.id,
+                    book_order.user_key,
                 )
             };
 
@@ -534,6 +536,18 @@ impl<'info> PlaceOrder<'info> {
                         token_type
                     );
                 }
+
+                emit!(OrderMatched {
+                    market_id,
+                    maker_order_id,
+                    taker_side: order.side,
+                    taker: self.user.key(),
+                    maker: maker_pubkey,
+                    token_type,
+                    price: book_price,
+                    quantity: min_qty,
+                    timestamp: Clock::get()?.unix_timestamp,
+                });
 
                 // Remove completed orders or advance to next
                 if matching_orders[idx].filledquantity >= matching_orders[idx].quantity {
