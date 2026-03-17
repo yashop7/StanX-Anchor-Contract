@@ -139,21 +139,29 @@ impl<'info> CancelOrder<'info> {
             PredictionMarketError::NotAuthorized
         );
 
-        // Reducing the Locked Quantity
+        // Calculate the unfilled portion to refund
+        let unfilled_quantity = order_found
+            .quantity
+            .checked_sub(order_found.filledquantity)
+            .ok_or(PredictionMarketError::MathOverflow)?;
+
+        require!(
+            unfilled_quantity > 0,
+            PredictionMarketError::OrderFullyFilled
+        );
 
         if order_side == OrderSide::Buy {
-            // For buy orders, unlock collateral
-            let locked_amount = order_found
-                .quantity
-                .checked_sub(order_found.filledquantity)
-                .ok_or(PredictionMarketError::MathOverflow)?
+            // For buy orders, unlock collateral for the unfilled portion only
+            let refund_amount = unfilled_quantity
                 .checked_mul(order_found.price)
+                .ok_or(PredictionMarketError::MathOverflow)?
+                .checked_div(TOKEN_DECIMALS_SCALE)
                 .ok_or(PredictionMarketError::MathOverflow)?;
 
             self.user_stats_account.locked_collateral = self
                 .user_stats_account
                 .locked_collateral
-                .checked_sub(locked_amount)
+                .checked_sub(refund_amount)
                 .ok_or(PredictionMarketError::MathOverflow)?;
 
             // Transfer collateral back to user
@@ -170,21 +178,16 @@ impl<'info> CancelOrder<'info> {
                     },
                     &[seeds],
                 ),
-                locked_amount,
+                refund_amount,
             )?;
 
             // Track vault-level collateral leaving
             market.total_collateral_locked = market
                 .total_collateral_locked
-                .checked_sub(locked_amount)
+                .checked_sub(refund_amount)
                 .ok_or(PredictionMarketError::MathOverflow)?;
         } else {
-            // For sell orders, unlock tokens
-            let locked_quantity = order_found
-                .quantity
-                .checked_sub(order_found.filledquantity)
-                .ok_or(PredictionMarketError::MathOverflow)?;
-
+            // For sell orders, unlock tokens for the unfilled portion only
             let (user_token_account, token_escrow) = match order_token_type {
                 TokenType::Yes => (
                     self.user_outcome_yes
@@ -205,19 +208,19 @@ impl<'info> CancelOrder<'info> {
                     self.user_stats_account.locked_yes = self
                         .user_stats_account
                         .locked_yes
-                        .checked_sub(locked_quantity)
+                        .checked_sub(unfilled_quantity)
                         .ok_or(PredictionMarketError::MathOverflow)?;
                 }
                 TokenType::No => {
                     self.user_stats_account.locked_no = self
                         .user_stats_account
                         .locked_no
-                        .checked_sub(locked_quantity)
+                        .checked_sub(unfilled_quantity)
                         .ok_or(PredictionMarketError::MathOverflow)?;
                 }
             }
 
-            // Transfer tokens back from escrow to user
+            // Transfer unfilled tokens back from escrow to user
             let market_id_bytes = market.market_id.to_le_bytes();
             let seeds = &[MARKET_SEED, market_id_bytes.as_ref(), &[market.bump]];
 
@@ -231,7 +234,7 @@ impl<'info> CancelOrder<'info> {
                     },
                     &[seeds],
                 ),
-                locked_quantity,
+                unfilled_quantity,
             )?;
         }
 

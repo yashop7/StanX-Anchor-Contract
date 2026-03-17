@@ -4,7 +4,7 @@
     "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
     "generate:client": "codama run js && codama run rust",
-    "postbuild": "anchor build && yarn generate:client",
+    "postbuild": "anchor test && yarn generate:client",
     "test:devnet": "anchor test --skip-deploy --provider.cluster devnet"
   },
   "dependencies": {

@@ -59,4 +59,8 @@ pub enum PredictionMarketError {
     SettlementDeadlineNotReached,
     #[msg("Market result is a draw; no winners to claim rewards")]
     NoWinnersInDraw,
+    #[msg("Order quantity is below the minimum allowed (must be >= 1000 base units)")]
+    OrderTooSmall,
+    #[msg("Order is fully filled and cannot be cancelled")]
+    OrderFullyFilled,
 }

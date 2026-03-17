@@ -48,7 +48,7 @@ pub struct PlaceOrder<'info> {
     #[account(
         init_if_needed,
         payer = user,
-        space = 8 + UserStats::INIT_SPACE,
+        space = UserStats::DISCRIMINATOR.len() + UserStats::INIT_SPACE,
         seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump
     )]
@@ -124,8 +124,11 @@ impl<'info> PlaceOrder<'info> {
         );
 
         require!(quantity > 0, PredictionMarketError::InvalidOrderQuantity);
-        // There should be another checks for Lamports, We can't pay less than the minimum decimals of the Token
         require!(price > 0, PredictionMarketError::InvalidOrderPrice);
+        require!(
+            quantity >= MIN_ORDER_QUANTITY,
+            PredictionMarketError::OrderTooSmall
+        );
 
         // Initialising the user stats account
         let user_stats = &mut self.user_stats_account;
@@ -141,9 +144,18 @@ impl<'info> PlaceOrder<'info> {
             user_stats.bump = bumps.user_stats_account;
         }
 
+        // quantity is in base units (10^6 per display token).
+        // Dividing by TOKEN_DECIMALS_SCALE converts the product to micro USDC.
         let amount = quantity
             .checked_mul(price)
+            .ok_or(PredictionMarketError::MathOverflow)?
+            .checked_div(TOKEN_DECIMALS_SCALE)
             .ok_or(PredictionMarketError::MathOverflow)?;
+
+        require!(
+            amount > 0,
+            PredictionMarketError::OrderTooSmall
+        );
 
         // Lock funds immediately when placing order
         // For Buyer: lock collateral in Vault, no outcome ATAs needed
@@ -306,16 +318,29 @@ impl<'info> PlaceOrder<'info> {
                 let book_left_qty = book_qty
                     .checked_sub(book_filled_qty)
                     .ok_or(PredictionMarketError::MathOverflow)?;
-                let min_qty = our_left_qty.min(book_left_qty);
 
                 // If our order is fully filled, we're done
                 if our_left_qty == 0 {
                     break;
                 }
 
-                // If book order is empty, remove it and continue, imp: not inc. idx
+                // If book order is empty, remove it and continue
                 if book_left_qty == 0 {
                     matching_orders.remove(idx);
+                    continue;
+                }
+
+                let min_qty = our_left_qty.min(book_left_qty);
+
+                let collateral_amount = min_qty
+                    .checked_mul(book_price)
+                    .ok_or(PredictionMarketError::MathOverflow)?
+                    .checked_div(TOKEN_DECIMALS_SCALE)
+                    .ok_or(PredictionMarketError::MathOverflow)?;
+
+                // Skip if rounding yields zero collateral (prevents free-token exploit)
+                if collateral_amount == 0 {
+                    idx += 1;
                     continue;
                 }
 
@@ -329,16 +354,13 @@ impl<'info> PlaceOrder<'info> {
                     .checked_add(min_qty)
                     .ok_or(PredictionMarketError::MathOverflow)?;
 
-                // collateral_amount = what the SELLER receives (at book_price)
-                let collateral_amount = min_qty
-                    .checked_mul(book_price)
-                    .ok_or(PredictionMarketError::MathOverflow)?;
-
                 // Credit the appropriate user stats based on whether this is a buy or sell order
                 if is_buy_order {
-                    // How much the buyer originally locked for these tokens (at their price)
+                    // collateral the buyer locked for min_qty tokens at their bid price
                     let locked_at_our_price = min_qty
                         .checked_mul(order.price)
+                        .ok_or(PredictionMarketError::MathOverflow)?
+                        .checked_div(TOKEN_DECIMALS_SCALE)
                         .ok_or(PredictionMarketError::MathOverflow)?;
 
                     // Price improvement surplus: buyer offered more than the fill price
@@ -377,13 +399,6 @@ impl<'info> PlaceOrder<'info> {
                             .claimable_collateral
                             .checked_add(surplus)
                             .ok_or(PredictionMarketError::MathOverflow)?;
-
-                        // Surplus collateral is no longer locked in the vault — release it now
-                        // so total_collateral_locked stays in sync with the actual vault balance
-                        market.total_collateral_locked = market
-                            .total_collateral_locked
-                            .checked_sub(surplus)
-                            .ok_or(PredictionMarketError::MathOverflow)?;
                     }
 
                     // Credit SELLER (from matching order) with collateral
@@ -403,6 +418,10 @@ impl<'info> PlaceOrder<'info> {
                     let mut seller_credited = false;
                     for account_info in remaining_accounts.iter() {
                         if account_info.key == &seller_stats_pda {
+                            require!(
+                                account_info.owner == program_id,
+                                PredictionMarketError::InvalidAccountOwner
+                            );
                             let mut data = account_info.try_borrow_mut_data()?;
                             let mut seller_stats = UserStats::try_deserialize(&mut &data[..])?;
 
@@ -439,11 +458,6 @@ impl<'info> PlaceOrder<'info> {
                         seller_credited,
                         PredictionMarketError::SellerStatsAccountNotProvided
                     );
-
-                    market.total_collateral_locked = market
-                        .total_collateral_locked
-                        .checked_sub(collateral_amount)
-                        .ok_or(PredictionMarketError::MathOverflow)?;
 
                     msg!(
                         "Trade: Buyer +{} claimable {:?}, Seller +{} claimable collateral",
@@ -492,6 +506,10 @@ impl<'info> PlaceOrder<'info> {
                     let mut buyer_credited = false;
                     for account_info in remaining_accounts.iter() {
                         if account_info.key == &buyer_stats_pda {
+                            require!(
+                                account_info.owner == program_id,
+                                PredictionMarketError::InvalidAccountOwner
+                            );
                             let mut data = account_info.try_borrow_mut_data()?;
                             let mut buyer_stats = UserStats::try_deserialize(&mut &data[..])?;
 
@@ -510,7 +528,8 @@ impl<'info> PlaceOrder<'info> {
                                 }
                             }
 
-                            // Reduce buyer's locked collateral since order was filled
+                            // collateral_amount = min_qty * book_price = what the buyer locked per token.
+                            // The buyer IS the book order, so book_price == their bid price.
                             buyer_stats.locked_collateral = buyer_stats
                                 .locked_collateral
                                 .checked_sub(collateral_amount)
@@ -560,7 +579,8 @@ impl<'info> PlaceOrder<'info> {
                 iteration += 1;
             } else {
                 // No more matching orders
-                break;
+                idx += 1;
+                continue;
             }
         }
 
@@ -585,6 +605,8 @@ impl<'info> PlaceOrder<'info> {
                 if side == OrderSide::Buy {
                     let unfilled_collateral = unfilled_qty
                         .checked_mul(order.price)
+                        .ok_or(PredictionMarketError::MathOverflow)?
+                        .checked_div(TOKEN_DECIMALS_SCALE)
                         .ok_or(PredictionMarketError::MathOverflow)?;
 
                     self.user_stats_account.locked_collateral = self

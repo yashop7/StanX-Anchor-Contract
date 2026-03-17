@@ -48,7 +48,7 @@ pub struct MarketOrder<'info> {
     #[account(
         init_if_needed,
         payer = user,
-        space = 8 + UserStats::INIT_SPACE,
+        space = UserStats::DISCRIMINATOR.len() + UserStats::INIT_SPACE,
         seeds = [USER_STATS_SEED, market_id.to_le_bytes().as_ref(), user.key().as_ref()],
         bump
     )]
@@ -132,6 +132,15 @@ impl<'info> MarketOrder<'info> {
             PredictionMarketError::InvalidAmount
         );
 
+        // For SELL orders order_amount is the quantity of YES/NO tokens in base units.
+        // Enforce minimum to prevent amount/TOKEN_DECIMALS_SCALE truncating to zero.
+        if side == OrderSide::Sell {
+            require!(
+                order_amount >= MIN_ORDER_QUANTITY,
+                PredictionMarketError::OrderTooSmall
+            );
+        }
+
         let user_stats: &mut Box<Account<'_, UserStats>> = &mut self.user_stats_account;
         if user_stats.user == Pubkey::default() {
             user_stats.user = self.user.key();
@@ -145,7 +154,7 @@ impl<'info> MarketOrder<'info> {
             user_stats.bump = bumps.user_stats_account;
         }
 
-        // Checking balance in account
+        // Checking balance in account before locking funds
         match side {
             OrderSide::Buy => {
                 require!(
@@ -169,10 +178,6 @@ impl<'info> MarketOrder<'info> {
         // Locking of Funds
         if side == OrderSide::Buy {
             // Locking the collateral in the Collateral Vault
-            require!(
-                self.user_collateral.amount >= order_amount,
-                PredictionMarketError::NotEnoughBalance
-            );
 
             token::transfer(
                 CpiContext::new(
@@ -265,31 +270,44 @@ impl<'info> MarketOrder<'info> {
                 continue;
             }
 
-            // Prevent self-trading
+            // Prevent self-trading — do NOT consume an iteration for skips
             if matching_orders[idx].user_key == self.user.key() {
                 idx += 1;
                 continue;
             }
 
-            let min_qty;
-
-            match side {
+            let min_qty = match side {
                 OrderSide::Buy => {
-                    // Calculate how many tokens we can buy with REMAINING collateral
+                    // remaining_amount is µUSDC; book_price is µUSDC per display token.
+                    // Multiply by TOKEN_DECIMALS_SCALE to convert display tokens → base units.
                     let order_buy_qty = remaining_amount
+                        .checked_mul(TOKEN_DECIMALS_SCALE)
+                        .ok_or(PredictionMarketError::MathOverflow)?
                         .checked_div(book_price)
                         .ok_or(PredictionMarketError::MathOverflow)?;
-                    min_qty = order_buy_qty.min(book_remaining_qty);
+                    order_buy_qty.min(book_remaining_qty)
                 }
-                OrderSide::Sell => {
-                    // Use remaining tokens, not total order_amount
-                    min_qty = remaining_amount.min(book_remaining_qty);
-                }
+                OrderSide::Sell => remaining_amount.min(book_remaining_qty),
+            };
+
+            // if min_qty is 0 the taker can't afford even one token at this price, we will skip
+            if min_qty == 0 {
+                idx += 1;
+                continue;
             }
 
+            // collateral = base_units × µUSDC_per_display_token / scale = µUSDC
             let collateral_amount = book_price
                 .checked_mul(min_qty)
+                .ok_or(PredictionMarketError::MathOverflow)?
+                .checked_div(TOKEN_DECIMALS_SCALE)
                 .ok_or(PredictionMarketError::MathOverflow)?;
+
+            // Skip if rounding yields zero collateral (prevents free-token exploit)
+            if collateral_amount == 0 {
+                idx += 1;
+                continue;
+            }
 
             // Update book order's filled quantity
             matching_orders[idx].filledquantity = book_filled_qty
@@ -331,9 +349,12 @@ impl<'info> MarketOrder<'info> {
                 .0;
                 let mut seller_credited = false;
 
-                // Transferring assets to the Claimable feild in User stats Account + removing the locked assets
                 for account_info in remaining_accounts.iter() {
                     if account_info.key == &seller_stats_pda {
+                        require!(
+                            account_info.owner == program_id,
+                            PredictionMarketError::InvalidAccountOwner
+                        );
                         let mut data = account_info.try_borrow_mut_data()?;
                         let mut seller_stats = UserStats::try_deserialize(&mut &data[..])?;
 
@@ -368,7 +389,9 @@ impl<'info> MarketOrder<'info> {
                     PredictionMarketError::SellerStatsAccountNotProvided
                 );
             } else {
-                // Credit BUYER (from matching order) with YES/NO tokens
+                // Credit BUYER (maker) with YES/NO tokens and release their locked collateral.
+                // The buyer's order IS the book order — book_price is their bid price.
+                // So collateral_amount = min_qty * book_price is exactly what they locked.
                 let buyer_pubkey = matching_orders[idx].user_key;
                 let buyer_stats_pda = Pubkey::find_program_address(
                     &[
@@ -381,9 +404,12 @@ impl<'info> MarketOrder<'info> {
                 .0;
                 let mut buyer_credited = false;
 
-                // Transferring assets to the Claimable feild in User stats Account + removing the locked assets
                 for account_info in remaining_accounts.iter() {
                     if account_info.key == &buyer_stats_pda {
+                        require!(
+                            account_info.owner == program_id,
+                            PredictionMarketError::InvalidAccountOwner
+                        );
                         let mut data = account_info.try_borrow_mut_data()?;
                         let mut buyer_stats = UserStats::try_deserialize(&mut &data[..])?;
 
@@ -401,6 +427,9 @@ impl<'info> MarketOrder<'info> {
                                     .ok_or(PredictionMarketError::MathOverflow)?;
                             }
                         }
+
+                        // Release the collateral the buyer locked for this fill.
+                        // collateral_amount = min_qty * book_price = min_qty * buyer's bid price.
                         buyer_stats.locked_collateral = buyer_stats
                             .locked_collateral
                             .checked_sub(collateral_amount)
@@ -413,7 +442,8 @@ impl<'info> MarketOrder<'info> {
                         break;
                     }
                 }
-
+                // total_collateral_locked for the paid-out collateral is handled
+                // once in the post-loop via fullfilled_qty — do not decrement here.
                 require!(
                     buyer_credited,
                     PredictionMarketError::BuyerStatsAccountNotProvided
@@ -421,25 +451,26 @@ impl<'info> MarketOrder<'info> {
             }
 
             emit!(OrderMatched {
-                    market_id,
-                    maker_order_id,
-                    taker_side: side,
-                    taker: self.user.key(),
-                    maker: maker_pubkey,
-                    token_type,
-                    price: book_price,
-                    quantity: min_qty,
-                    timestamp: Clock::get()?.unix_timestamp,
+                market_id,
+                maker_order_id,
+                taker_side: side,
+                taker: self.user.key(),
+                maker: maker_pubkey,
+                token_type,
+                price: book_price,
+                quantity: min_qty,
+                timestamp: Clock::get()?.unix_timestamp,
             });
 
             // Remove completed orders or advance to next
             if matching_orders[idx].filledquantity >= matching_orders[idx].quantity {
                 matching_orders.remove(idx);
-                // we will not increment idx
-            } else {
-                idx += 1;
+                // we will not increment idx, but we must continue to avoid incrementing it below
+                iteration += 1;
+                continue;
             }
 
+            idx += 1;
             iteration += 1;
         }
 
@@ -480,10 +511,6 @@ impl<'info> MarketOrder<'info> {
                     .checked_sub(collateral_spent)
                     .ok_or(PredictionMarketError::MathOverflow)?;
 
-                market.total_collateral_locked = market
-                    .total_collateral_locked
-                    .checked_sub(collateral_spent)
-                    .ok_or(PredictionMarketError::MathOverflow)?;
 
                 // Returning remaining collateral if any remains
                 if remaining_amount > 0 {
@@ -626,10 +653,6 @@ impl<'info> MarketOrder<'info> {
             timestamp: Clock::get()?.unix_timestamp,
         });
 
-        // Now we have to Transfer the Assets in their respective accounts
-        // The we have to sort the vector out
-        // Some additional changes& checks in B/W the code
-        // Transfer the Money at same time to the User
         Ok(())
     }
 }
