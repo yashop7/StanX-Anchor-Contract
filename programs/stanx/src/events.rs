@@ -57,7 +57,8 @@ pub struct MarketOrderExecuted {
     pub user: Pubkey,
     pub side: OrderSide,
     pub token_type: TokenType,
-    pub total_quantity: u64,
+    pub initial_quantity: u64,
+    pub filled_quantity: u64,
     pub orders_matched: u64,
     pub timestamp: i64,
 }
@@ -106,9 +107,11 @@ pub struct WinningSideSet {
     pub timestamp: i64,
 }
 
+// For market orders taker_order_id: 0 , it's zero bcoz market orders never rest on the book so they have no order_id.
 #[event]
 pub struct OrderMatched {
     pub market_id: u32,
+    pub taker_order_id: u64,
     pub maker_order_id: u64,
     pub taker_side: OrderSide,
     pub taker: Pubkey,

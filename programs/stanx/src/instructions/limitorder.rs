@@ -267,6 +267,17 @@ impl<'info> PlaceOrder<'info> {
             timestamp: Clock::get()?.unix_timestamp,
         };
 
+        emit!(OrderPlaced {
+            market_id,
+            order_id: order.id,
+            user: self.user.key(),
+            side,
+            token_type,
+            price,
+            quantity,
+            timestamp: order.timestamp,
+        });
+
         orderbook.next_order_id = orderbook
             .next_order_id
             .checked_add(1)
@@ -559,6 +570,7 @@ impl<'info> PlaceOrder<'info> {
                 emit!(OrderMatched {
                     market_id,
                     maker_order_id,
+                    taker_order_id: order.id,
                     taker_side: order.side,
                     taker: self.user.key(),
                     maker: maker_pubkey,
@@ -672,17 +684,6 @@ impl<'info> PlaceOrder<'info> {
             order.filledquantity,
             order.quantity - order.filledquantity
         );
-
-        emit!(OrderPlaced {
-            market_id,
-            order_id: order.id,
-            user: self.user.key(),
-            side,
-            token_type,
-            price,
-            quantity,
-            timestamp: order.timestamp,
-        });
 
         Ok(())
     }

@@ -453,6 +453,7 @@ impl<'info> MarketOrder<'info> {
             emit!(OrderMatched {
                 market_id,
                 maker_order_id,
+                taker_order_id: 0, // For market orders never rest on book
                 taker_side: side,
                 taker: self.user.key(),
                 maker: maker_pubkey,
@@ -648,7 +649,8 @@ impl<'info> MarketOrder<'info> {
             user: self.user.key(),
             side,
             token_type,
-            total_quantity: order_amount - remaining_amount,
+            initial_quantity : order_amount,
+            filled_quantity : order_amount - remaining_amount,
             orders_matched: iteration,
             timestamp: Clock::get()?.unix_timestamp,
         });
