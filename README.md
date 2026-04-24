@@ -215,7 +215,8 @@ anchor test -- --grep "Market Order" # Specific tests
 
 - **Architecture**: [System Design Doc](https://drive.google.com/file/d/1qIhdnObFbG3sC4Z7kTC0z4bDumRWR50k/view?usp=sharing) (PDA structure, compute optimization)
 - **User Stories**: [User Flow Analysis](https://docs.google.com/document/d/1kb2oOKC2i7t3VkV_5XF4fl10P69JRHtWaddwTAy7-Ws/edit?usp=sharing) (Personas, requirements)
-- **Platform**: [StanX Frontend](https://github.com/yashop7/Stanx) (in progress)
+- **Platform**: [StanX Frontend](https://github.com/yashop7/Stanx)
+- **Backend**: [StanX Backend](https://github.com/yashop7/StanX-Backend/) 
 
 ---
 
